@@ -1,31 +1,33 @@
 # Apache Fineract Mastery Roadmap
+
 ## From T24 Developer to Fineract White-Label Expert
 
 ---
 
 ## T24 → Fineract Concept Map
 
-| T24 Concept | Fineract Equivalent | Where in Code |
-|---|---|---|
-| APPLICATION / VERSION | REST API Endpoints (JAX-RS) | `portfolio/*/api/` |
-| ENQUIRY | Read Platform Services | `*ReadPlatformService.java` |
-| LOCAL.TABLE / FIELD | JPA Entities + Liquibase migrations | `domain/` + `db/changelog/` |
-| ROUTINE (jBC) | Command Handlers + Service layer | `handler/` + `service/` |
-| COB (Close of Business) | Spring Batch COB Jobs | `fineract-cob/` |
-| OVERRIDE / LOCAL.REF | Custom Modules (`/custom/`) | `custom/{company}/{category}/{module}` |
-| T24.PRODUCT | Loan/Savings Product configuration | `loanproduct/`, `savings/` product APIs |
-| AA (Arrangement Architecture) | Loan/Savings Account lifecycle | `loanaccount/`, `savings/` |
-| STMT.ENTRY / CATEG.ENTRY | Journal Entries (double-entry) | `fineract-accounting/` |
-| EB.API | Fineract REST API + Swagger | `/fineract-provider/api/v1/` |
-| Multi-company | Multi-tenancy (tenant per DB) | `FineractPlatformTenant.java` |
-| OFS Messages | Command Source / Command Wrapper | `fineract-command/` |
-| COMPANY / BRANCH | Office hierarchy | `organisation/office/` |
+| T24 Concept                   | Fineract Equivalent                 | Where in Code                           |
+| ----------------------------- | ----------------------------------- | --------------------------------------- |
+| APPLICATION / VERSION         | REST API Endpoints (JAX-RS)         | `portfolio/*/api/`                      |
+| ENQUIRY                       | Read Platform Services              | `*ReadPlatformService.java`             |
+| LOCAL.TABLE / FIELD           | JPA Entities + Liquibase migrations | `domain/` + `db/changelog/`             |
+| ROUTINE (jBC)                 | Command Handlers + Service layer    | `handler/` + `service/`                 |
+| COB (Close of Business)       | Spring Batch COB Jobs               | `fineract-cob/`                         |
+| OVERRIDE / LOCAL.REF          | Custom Modules (`/custom/`)         | `custom/{company}/{category}/{module}`  |
+| T24.PRODUCT                   | Loan/Savings Product configuration  | `loanproduct/`, `savings/` product APIs |
+| AA (Arrangement Architecture) | Loan/Savings Account lifecycle      | `loanaccount/`, `savings/`              |
+| STMT.ENTRY / CATEG.ENTRY      | Journal Entries (double-entry)      | `fineract-accounting/`                  |
+| EB.API                        | Fineract REST API + Swagger         | `/fineract-provider/api/v1/`            |
+| Multi-company                 | Multi-tenancy (tenant per DB)       | `FineractPlatformTenant.java`           |
+| OFS Messages                  | Command Source / Command Wrapper    | `fineract-command/`                     |
+| COMPANY / BRANCH              | Office hierarchy                    | `organisation/office/`                  |
 
 ---
 
 ## Phase 1: Environment Setup & First Run (Days 1-3)
 
 ### Prerequisites
+
 - Java 21 (Azul Zulu recommended)
 - PostgreSQL 18+ (run via Docker)
 - IntelliJ IDEA (recommended IDE)
@@ -54,6 +56,7 @@ $env:FINERACT_DEFAULT_TENANTDB_PWD="postgres"
 ```
 
 ### Verify
+
 ```powershell
 # Health check
 curl --insecure https://localhost:8443/fineract-provider/actuator/health
@@ -66,9 +69,11 @@ curl --insecure https://localhost:8443/fineract-provider/api/v1/clients `
 ```
 
 ### Swagger UI
+
 Open: `https://localhost:8443/fineract-provider/swagger-ui/index.html`
 
 ### Frontend (Mifos X Web App)
+
 ```powershell
 git clone https://github.com/openMF/web-app.git
 cd web-app
@@ -138,7 +143,7 @@ portfolio/{domain}/
 Fineract routes **all write operations** through a command pattern — similar to T24's OFS messages:
 
 ```
-HTTP Request → API Resource → CommandWrapper (built) 
+HTTP Request → API Resource → CommandWrapper (built)
   → CommandSourceService.processCommand()
     → CommandHandler.processCommand(JsonCommand)
       → Domain Service (business logic)
@@ -147,6 +152,7 @@ HTTP Request → API Resource → CommandWrapper (built)
 ```
 
 **Key files to study:**
+
 - [CommandWrapper.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/commands/domain/CommandWrapper.java) — Wraps every command with entity/action/resource metadata
 - [NewCommandSourceHandler.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/commands/handler/NewCommandSourceHandler.java) — Interface all handlers implement
 - [CommandWrapperConstants.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/commands/domain/CommandWrapperConstants.java) — All action/entity constants
@@ -181,16 +187,16 @@ Each tenant gets its **own database** — complete data isolation. The `Fineract
 
 **Study order → Code path:**
 
-| Step | API | Key Code |
-|---|---|---|
-| 1. Create Office hierarchy | `POST /offices` | `organisation/office/` |
-| 2. Define currencies | `PUT /currencies` | `organisation/monetary/` |
-| 3. Create staff | `POST /staff` | `organisation/staff/` |
-| 4. Configure holidays | `POST /holidays` | `organisation/holiday/` |
-| 5. Set working days | `PUT /workingdays` | `organisation/workingdays/` |
-| 6. Chart of Accounts | `POST /glaccounts` | `fineract-accounting/` |
-| 7. Payment types | `POST /paymenttypes` | `infrastructure/codes/` |
-| 8. Create users & roles | `POST /users`, `/roles` | `useradministration/` |
+| Step                       | API                     | Key Code                    |
+| -------------------------- | ----------------------- | --------------------------- |
+| 1. Create Office hierarchy | `POST /offices`         | `organisation/office/`      |
+| 2. Define currencies       | `PUT /currencies`       | `organisation/monetary/`    |
+| 3. Create staff            | `POST /staff`           | `organisation/staff/`       |
+| 4. Configure holidays      | `POST /holidays`        | `organisation/holiday/`     |
+| 5. Set working days        | `PUT /workingdays`      | `organisation/workingdays/` |
+| 6. Chart of Accounts       | `POST /glaccounts`      | `fineract-accounting/`      |
+| 7. Payment types           | `POST /paymenttypes`    | `infrastructure/codes/`     |
+| 8. Create users & roles    | `POST /users`, `/roles` | `useradministration/`       |
 
 ### 3.2 Loan Lifecycle (Like T24 LD/AA)
 
@@ -224,6 +230,7 @@ Product Setup → Open Account → Activate → Deposit/Withdraw → Interest Ca
 ```
 
 **Key files:**
+
 - `fineract-provider/.../savings/api/SavingsAccountsApiResource.java`
 - `fineract-savings/.../savings/domain/` — Entities & business rules
 - Fixed Deposits, Recurring Deposits also under `savings/api/`
@@ -234,12 +241,12 @@ Fineract uses **double-entry accounting**. Loan/Savings products are linked to G
 
 **Key path**: `fineract-accounting/` + `fineract-provider/.../accounting/`
 
-| Accounting Type | Description |
-|---|---|
-| None | No GL entries |
-| Cash-based | Entries on cash movement |
-| Accrual (periodic) | Income recognized over time |
-| Accrual (upfront) | All income recognized at disbursement |
+| Accounting Type    | Description                           |
+| ------------------ | ------------------------------------- |
+| None               | No GL entries                         |
+| Cash-based         | Entries on cash movement              |
+| Accrual (periodic) | Income recognized over time           |
+| Accrual (upfront)  | All income recognized at disbursement |
 
 ### 3.5 Close of Business (Like T24 COB)
 
@@ -278,18 +285,19 @@ This is auto-discovered by `settings.gradle` lines 89-101 — no core code chang
 
 ### 4.2 Extension Strategies (Do NOT Modify Core)
 
-| Strategy | Use Case | How |
-|---|---|---|
-| **Override a Service** | Replace default business logic | `@ConditionalOnMissingBean` + your `@Bean` |
-| **Custom COB Step** | Add nightly processing | Implement `COBBusinessStep` interface |
-| **Custom API Endpoint** | New functionality | Add JAX-RS `@Path` resource in your module |
-| **Custom DB Tables** | Store extra data | Liquibase changesets in your module |
-| **Custom Event Listener** | React to business events | Listen to Spring/Kafka events |
-| **Custom Loan Schedule** | Different interest calc | Implement schedule generator interface |
+| Strategy                  | Use Case                       | How                                        |
+| ------------------------- | ------------------------------ | ------------------------------------------ |
+| **Override a Service**    | Replace default business logic | `@ConditionalOnMissingBean` + your `@Bean` |
+| **Custom COB Step**       | Add nightly processing         | Implement `COBBusinessStep` interface      |
+| **Custom API Endpoint**   | New functionality              | Add JAX-RS `@Path` resource in your module |
+| **Custom DB Tables**      | Store extra data               | Liquibase changesets in your module        |
+| **Custom Event Listener** | React to business events       | Listen to Spring/Kafka events              |
+| **Custom Loan Schedule**  | Different interest calc        | Implement schedule generator interface     |
 
 ### 4.3 Building Your White-Label Product
 
 **Step 1: Fork Strategy**
+
 ```
 apache/fineract (upstream) ──pull──▶ your-org/fineract-core (never modify)
                                             │
@@ -299,12 +307,14 @@ apache/fineract (upstream) ──pull──▶ your-org/fineract-core (never mod
 ```
 
 **Step 2: Custom Frontend (Angular)**
+
 - Clone `https://github.com/openMF/web-app` (Angular + Material)
 - Rebrand: logos, colors, themes in `src/assets/` and `angular.json`
 - Add/remove modules per client requirements
 - Build separate Angular apps per white-label client if needed
 
 **Step 3: Multi-Tenant Deployment**
+
 ```
 ┌───────────────────────────────────────┐
 │ Your White-Label Platform             │
@@ -321,6 +331,7 @@ apache/fineract (upstream) ──pull──▶ your-org/fineract-core (never mod
 ```
 
 **Step 4: Dockerized Deployment**
+
 ```dockerfile
 # custom/docker/Dockerfile includes your modules
 FROM apache/fineract:latest
@@ -347,6 +358,7 @@ Or build with: `.\gradlew :custom:docker:jibDockerBuild`
 ### Key Configuration
 
 All configuration is via environment variables prefixed `FINERACT_*`:
+
 - `FINERACT_HIKARI_*` — Database connection pool
 - `FINERACT_DEFAULT_TENANTDB_*` — Default tenant database
 - `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_*` — COB message broker
@@ -356,33 +368,39 @@ All configuration is via environment variables prefixed `FINERACT_*`:
 ## Recommended Study Path (File-by-File)
 
 ### Week 1: Foundation
+
 1. [ServerApplication.java](file:///d:/AI/fineract/fineract-provider/src/main/java/org/apache/fineract/ServerApplication.java) — Entry point
 2. [FineractPlatformTenant.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/infrastructure/core/domain/FineractPlatformTenant.java) — Multi-tenancy
 3. [CommandWrapper.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/commands/domain/CommandWrapper.java) — Command pattern
 4. [CommandWrapperConstants.java](file:///d:/AI/fineract/fineract-core/src/main/java/org/apache/fineract/commands/domain/CommandWrapperConstants.java) — All operations catalog
 
 ### Week 2: Client & Organisation
+
 5. `fineract-provider/.../portfolio/client/` — Client management (start with `api/`, then `service/`, then `domain/`)
 6. `fineract-provider/.../organisation/office/` — Office hierarchy
 7. `fineract-provider/.../useradministration/` — Users, roles, permissions
 
 ### Week 3: Loans
+
 8. `fineract-provider/.../portfolio/loanproduct/` — Product configuration
 9. `fineract-provider/.../portfolio/loanaccount/api/LoansApiResource.java` — All loan endpoints
 10. `fineract-loan/.../portfolio/loanaccount/domain/` — Loan entity model
 11. `fineract-provider/.../portfolio/loanaccount/service/LoanApplicationWritePlatformServiceJpaRepositoryImpl.java` — Application flow
 
 ### Week 4: Savings & Accounting
+
 12. `fineract-provider/.../portfolio/savings/api/SavingsAccountsApiResource.java`
 13. `fineract-savings/.../portfolio/savings/domain/` — Savings entities
 14. `fineract-accounting/.../accounting/` — GL, journal entries, closures
 
 ### Week 5: COB & Events
+
 15. `fineract-cob/` — Batch processing framework
 16. `fineract-avro-schemas/` — External event schemas
 17. `fineract-provider/.../infrastructure/event/` — Event publishing
 
 ### Week 6: Customization
+
 18. `custom/acme/` — Study the example custom module
 19. Create your first custom module under `custom/{your-company}/`
 20. `settings.gradle` lines 89-101 — Auto-discovery mechanism
@@ -391,22 +409,20 @@ All configuration is via environment variables prefixed `FINERACT_*`:
 
 ## Key Resources
 
-| Resource | URL |
-|---|---|
-| Official Docs | https://fineract.apache.org/docs/current |
-| Swagger (live) | https://sandbox.mifos.community/fineract-provider/swagger-ui/index.html |
-| Mifos X Web App | https://github.com/openMF/web-app |
-| Wiki | https://cwiki.apache.org/confluence/display/FINERACT |
-| Mailing List | https://fineract.apache.org/#contribute |
-| Slack | https://app.slack.com/client/T0F5GHE8Y/C028634A61L |
-| JIRA | https://issues.apache.org/jira/secure/Dashboard.jspa?selectPageId=12335824 |
-| Fineract Academy | https://fineract-academy.com |
+| Resource         | URL                                                                        |
+| ---------------- | -------------------------------------------------------------------------- |
+| Official Docs    | https://fineract.apache.org/docs/current                                   |
+| Swagger (live)   | https://sandbox.mifos.community/fineract-provider/swagger-ui/index.html    |
+| Mifos X Web App  | https://github.com/openMF/web-app                                          |
+| Wiki             | https://cwiki.apache.org/confluence/display/FINERACT                       |
+| Mailing List     | https://fineract.apache.org/#contribute                                    |
+| Slack            | https://app.slack.com/client/T0F5GHE8Y/C028634A61L                         |
+| JIRA             | https://issues.apache.org/jira/secure/Dashboard.jspa?selectPageId=12335824 |
+| Fineract Academy | https://fineract-academy.com                                               |
 
 ---
 
-## Your Competitive Advantage as a T24 Developer
-
-Your T24 background gives you **massive advantages**:
+## Advantages
 
 1. **Product configuration thinking** — T24's AA architecture maps well to Fineract's product-based approach
 2. **COB/batch understanding** — You already understand end-of-day processing concepts
@@ -415,6 +431,7 @@ Your T24 background gives you **massive advantages**:
 5. **Regulatory compliance** — Your experience with banking regulations transfers directly
 
 **Key differences to adapt to:**
+
 - Fineract is **API-first** (no built-in UI) vs T24's integrated Browser/Classic
 - Fineract uses **Spring Boot + JPA** vs T24's jBC + Universe DB
 - Fineract's customization is via **separate modules** vs T24's LOCAL.REF/OVERRIDE
