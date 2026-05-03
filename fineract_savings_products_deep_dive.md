@@ -1417,14 +1417,24 @@ Run the `Update Savings Dormancy Job` via the scheduler. This job runs daily. Fi
 
 > [!NOTE]
 > **Where is the Last Active Transaction Date read from?**
-> This date is **not** stored as a physical column on the savings account table. It is dynamically calculated on the fly using the following SQL logic during the read operation:
+> This date is **not** stored as a physical column on the savings account table. It is dynamically calculated on the fly using the following SQL logic during the read operation. If you want to test this logic directly against your database, use the following executable query:
 > ```sql
-> (select COALESCE(max(sat.transaction_date), sa.activatedon_date) 
->  from m_savings_account_transaction as sat 
->  where sat.is_reversed = false 
->    and sat.is_reversal = false 
->    and sat.transaction_type_enum in (1,2) 
->    and sat.savings_account_id = sa.id)
+> SELECT 
+>     sa.id as account_id,
+>     sa.account_no,
+>     sa.activatedon_date,
+>     COALESCE(MAX(sat.transaction_date), sa.activatedon_date) AS lastActiveTransactionDate
+> FROM m_savings_account sa
+> LEFT JOIN m_savings_account_transaction sat 
+>     ON sat.savings_account_id = sa.id 
+>    AND sat.is_reversed = false 
+>    AND sat.is_reversal = false 
+>    AND sat.transaction_type_enum IN (1, 2)
+> WHERE sa.status_enum = 300
+> GROUP BY 
+>     sa.id, 
+>     sa.account_no, 
+>     sa.activatedon_date;
 > ```
 > This logic ensures only valid, non-reversed deposits (1) and withdrawals (2) are considered. System transactions (interest, fees, tax) are completely ignored. If the account is brand new, it gracefully falls back to the `activatedon_date`.
 
