@@ -1374,3 +1374,165 @@ Enable GSIM and link to a Group ID (`POST /v1/savingsaccounts/gsim`):
 
 #### Observe
 Fineract automatically creates a master GSIM "parent" account and spawns individual "child" savings accounts for John and Jane. When viewing the group in the UI or API, the master account displays the aggregated sum of all child account balances, while transactions can still be processed at the individual child level.
+
+## 11. Advanced Savings Lifecycle: Dormancy, Escheatment & Reactivation
+
+The Fineract state machine dictates how an `ACTIVE (300)` account degrades into `INACTIVE (300, sub=100)`, `DORMANT (300, sub=200)`, and ultimately `ESCHEAT (300, sub=300)`.
+
+```mermaid
+graph TD
+    A[SUBMITTED_AND_PENDING_APPROVAL 100] -->|approve| B[APPROVED 200]
+    B -->|activate| C[ACTIVE 300]
+    
+    subgraph Active States 300
+    C -->|Job: > InactiveDays| D[INACTIVE sub=100]
+    D -->|Job: > DormantDays| E[DORMANT sub=200]
+    end
+    
+    E -->|Job: > EscheatDays| F[CLOSED 600, sub=300]
+    
+    D -.->|Deposit/Withdrawal| C
+    E -.->|Deposit/Withdrawal| C
+    F -.->|Manual Override/Reversal| C
+```
+
+### 11.1 Sub-Statuses: Inactive & Dormant (100 & 200)
+
+When an account lacks customer-initiated transactions for extended periods, Fineract tracks its degradation via sub-statuses. This does *not* close the account, but flags it for operational reporting or transaction blocking.
+
+#### Setup
+Dormancy tracking is configured at the **Savings Product** level during creation or update.
+
+```json
+{
+  "isDormancyTrackingActive": true,
+  "daysToInactive": 90,
+  "daysToDormancy": 180,
+  "daysToEscheat": 365
+}
+```
+
+#### Verify
+Run the `Update Savings Dormancy Job` via the scheduler. This job runs daily. Fineract calculates the date difference between the Current Business Date and the **Last Active Transaction Date**.
+
+> [!NOTE]
+> **Where is the Last Active Transaction Date read from?**
+> This date is **not** stored as a physical column on the savings account table. It is dynamically calculated on the fly using the following SQL logic during the read operation:
+> ```sql
+> (select COALESCE(max(sat.transaction_date), sa.activatedon_date) 
+>  from m_savings_account_transaction as sat 
+>  where sat.is_reversed = false 
+>    and sat.is_reversal = false 
+>    and sat.transaction_type_enum in (1,2) 
+>    and sat.savings_account_id = sa.id)
+> ```
+> This logic ensures only valid, non-reversed deposits (1) and withdrawals (2) are considered. System transactions (interest, fees, tax) are completely ignored. If the account is brand new, it gracefully falls back to the `activatedon_date`.
+
+#### Execute
+No manual API call triggers dormancy. It is strictly date-driven. 
+If 90 days have passed since the last transaction, the job automatically sets `sub_status = 100` (INACTIVE). 
+If 180 days have passed, the job updates `sub_status = 200` (DORMANT).
+
+#### Observe
+When querying `GET /v1/savingsaccounts/{id}`, observe the `subStatus` object:
+```json
+"subStatus": {
+    "id": 200,
+    "code": "savingsAccountSubStatusEnum.dormant",
+    "value": "Dormant",
+    "dormant": true,
+    "inactive": false,
+    "escheat": false
+}
+```
+
+### 11.2 Reactivation Process (Return to Active)
+
+Fineract does *not* possess a dedicated `?command=reactivate` API. Reactivation is organically integrated into the transaction lifecycle.
+
+#### Execute
+To reactivate a `DORMANT` or `INACTIVE` account, a standard deposit or withdrawal must be successfully posted.
+```http
+POST /v1/savingsaccounts/{id}/transactions?command=deposit
+```
+
+#### Observe
+Inside the core engine (`SavingsAccount.java`), whenever a non-reversed transaction is successfully added to the account, the system checks the sub-status. If it is `INACTIVE` or `DORMANT`, Fineract automatically resets `sub_status = 0` (NONE), effectively restoring it to a fully `ACTIVE` state.
+
+### 11.3 Escheatment & Automatic Closure (300)
+
+Escheatment is the legal process of transferring unclaimed/abandoned funds to the state or a specific institutional liability account. 
+
+#### Setup
+In addition to defining `daysToEscheat`, the Savings Product must be mapped to an Escheat Liability Account in its advanced accounting configuration:
+```json
+{
+  "escheatLiabilityAccountId": 24 // ID of the GL Liability Account for Escheated Funds
+}
+```
+
+#### Verify
+The daily `Update Savings Dormancy Job` identifies accounts where the difference between today and the last transaction exceeds `daysToEscheat`. 
+*Critical Rule*: An account **must** already be in a `DORMANT` sub-status before it can be escheated.
+
+#### Execute
+The job automatically executes the internal `escheat` function on the account. You cannot manually trigger escheatment via a REST API command.
+
+#### Observe
+Escheatment triggers a dramatic and automatic state transition in Fineract:
+1. **Zeroing Balance**: The system automatically creates a withdrawal transaction of type `Escheat (19)` for the exact remaining balance of the account.
+2. **GL Transfer**: The funds are debited from the Savings Control GL and credited to the configured `Escheat Liability GL`.
+3. **Automatic Closure**: Fineract **automatically changes the primary status to CLOSED (600)**. The account is no longer `ACTIVE (300)`.
+4. **Sub-Status Update**: The sub-status is permanently marked as `ESCHEAT (300)`.
+
+```json
+"status": {
+    "id": 600,
+    "code": "savingsAccountStatusType.closed",
+    "value": "Closed",
+    "closed": true
+},
+"subStatus": {
+    "id": 300,
+    "code": "savingsAccountSubStatusEnum.escheat",
+    "value": "Escheat",
+    "escheat": true
+}
+```
+
+### 11.4 Manual Override vs. Sub-Statuses
+
+Fineract strictly separates automated date-driven sub-statuses (`Inactive`, `Dormant`, `Escheat`) from manual human interventions (`Block`).
+
+#### Setup & Execute
+You cannot manually force an account into a "Dormant" state using an API. If a customer or teller requests an account to be frozen (e.g., due to lost credentials or legal holds), you must use a block command. 
+
+The specific `BLOCK` sub-status applied is determined entirely by **which command parameter you pass in the API URL**:
+
+1. **Full Block (`command=block`)**
+   * Applies `BLOCK (400)`.
+   * Completely freezes the account. Both incoming deposits and outgoing withdrawals are rejected.
+2. **Debit Block / Withdrawal Freeze (`command=blockDebit`)**
+   * Applies `BLOCK_DEBIT (600)`.
+   * Prevents withdrawals and fees, but the account can still receive deposits and earn interest. Often used for Lien/collateral holds.
+3. **Credit Block / Deposit Freeze (`command=blockCredit`)**
+   * Applies `BLOCK_CREDIT (500)`.
+   * Prevents external deposits, but the customer can withdraw their existing balance.
+
+```http
+POST /v1/savingsaccounts/{id}?command=blockDebit
+```
+```json
+{
+  "reasonForBlock": "Customer reported lost card - freeze requested"
+}
+```
+
+#### Observe
+This applies the requested block sub-status. 
+
+> [!TIP]
+> **Intelligent Combination Logic**
+> If an account is currently in a `BLOCK_DEBIT (600)` state, and an operator subsequently calls `?command=blockCredit`, Fineract automatically recognizes that both directions are now blocked and upgrades the account's sub-status to a full `BLOCK (400)`.
+
+Unlike `Inactive`/`Dormant` states (which automatically clear upon a new transaction), a block completely restricts the defined transaction types until a human explicitly fires the corresponding unblock API (e.g., `?command=unblock`, `?command=unblockDebit`, `?command=unblockCredit`).
