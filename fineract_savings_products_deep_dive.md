@@ -191,6 +191,51 @@ Fineract drives the entire savings account lifecycle through a core set of REST 
 *   **When to use:** To remove the freeze and restore normal transaction capabilities once an investigation concludes.
 *   **Key Fields:** None required. Empty JSON `{}`.
 
+#### 11. Account Transfers (Double-Sided Ledger Entries)
+`POST /v1/accounttransfers`
+*   **When to use:** Whenever funds move directly from one internal account to another (e.g., from a client's savings account to pay off their loan, or from one savings account to another). This endpoint ensures the system creates a linked withdrawal and deposit, maintaining double-entry accounting integrity.
+*   **Key Fields:**
+    *   `fromAccountType` & `toAccountType`: `1` for Loan, `2` for Savings.
+    *   `fromAccountId` & `toAccountId`: The source and destination account IDs.
+    *   `transferAmount`: The monetary value to move.
+
+> [!TIP]
+> **Transactional Integrity**
+> Because Fineract maps these as two distinct transactions (a withdrawal and a deposit) linked via `m_account_transfer_transaction`, if you `undo` an account transfer transaction on the savings side, Fineract will automatically locate the linked loan repayment and `reverse` it as well.
+
+##### Refund By Transfer
+`POST /v1/accounttransfers/refundByTransfer`
+If a client accidentally overpays their loan, Fineract tracks the excess amount as `paidInAdvance`. The teller can refund this overpayment directly back into the client's savings account using this specialized endpoint. Fineract strictly validates that the `transferAmount` does not exceed the actual `paidInAdvance`.
+
+##### Standing Instructions (Scheduled Transfers)
+While `/accounttransfers` executes an *immediate*, one-time transfer, Fineract also supports scheduled, recurring transfers via the `/v1/standinginstructions` API. A daily background job reads these schedules and programmatically calls the `AccountTransfersWritePlatformService` logic to execute the transfer automatically.
+
+##### Deep Dive: Accounting Movements for Transfers
+Because Fineract executes an internal transfer as two separate operations (a withdrawal and a deposit), the system must use a "Suspense" account to balance the books and ensure complete visibility during the transaction.
+
+**The Flow (Savings to Savings example):**
+1. **Source Account Withdrawal:**
+   - **Debit:** Savings Control GL (reducing liability to the customer)
+   - **Credit:** Transfers in Suspense GL (parking the funds temporarily)
+2. **Destination Account Deposit:**
+   - **Debit:** Transfers in Suspense GL (removing the funds from parking)
+   - **Credit:** Savings Control GL (increasing liability to the customer)
+
+*Note: The `Transfers in Suspense` GL is configured directly on the Savings Product accounting mapping. This guarantees that if the second leg fails, the funds remain explicitly identifiable in the Suspense GL, preventing silent accounting imbalances.*
+
+##### Deep Dive: Applying Charges & Taxes (Excise Duty) on Transfers
+During a transfer, the Fineract engine evaluates if withdrawal fees should apply to the source account. 
+- The engine checks the configuration flag `isWithdrawalFeeApplicableForTransfer`.
+- If enabled, the engine treats the transfer withdrawal exactly like a cash withdrawal.
+- Any mapped **Withdrawal Fees** are triggered automatically on the source account.
+
+If those fees are mapped to a **Tax Group** (like Excise Duty), Fineract automatically splits the fee's General Ledger entries:
+
+**The Flow (Fee + Tax on Transfer):**
+- **Debit:** Savings Control GL (for the total fee + tax amount, reducing customer balance)
+- **Credit:** Fee Income GL (for the bank's revenue portion)
+- **Credit:** Tax Liability GL (for the Excise Duty payable to the government)
+
 ---
 
 ## 3. Savings Interest Engine — Deep Dive
@@ -1491,8 +1536,14 @@ The job automatically executes the internal `escheat` function on the account. Y
 #### Observe
 Escheatment triggers a dramatic and automatic state transition in Fineract:
 1. **Zeroing Balance**: The system automatically creates a withdrawal transaction of type `Escheat (19)` for the exact remaining balance of the account.
+   > [!NOTE]
+   > **Transaction Type vs Payment Type**
+   > The `19` here refers to the hardcoded internal *Transaction Type Enum* within the Fineract engine (`SavingsAccountTransactionType.ESCHEAT`). It does **not** mean you need to create a *Payment Type* with ID 19. The system bypasses the payment type mapping entirely when generating this transaction.
 2. **GL Transfer**: The funds are debited from the Savings Control GL and credited to the configured `Escheat Liability GL`.
 3. **Automatic Closure**: Fineract **automatically changes the primary status to CLOSED (600)**. The account is no longer `ACTIVE (300)`.
+   > [!WARNING]
+   > **Permanent State**
+   > A `CLOSED (600)` account is in a terminal state. There is no `?command=reactivate` or `?command=reopen` API. If an account was escheated by mistake and funds must be returned to the customer, the standard procedure is to open a brand new savings account for them and manually journal the funds from the Escheat Liability GL into the new account. The old account remains permanently closed.
 4. **Sub-Status Update**: The sub-status is permanently marked as `ESCHEAT (300)`.
 
 ```json
