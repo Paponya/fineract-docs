@@ -83,7 +83,11 @@ Fineract has a dedicated API for capturing family structure, which is often used
 - **Manage Family**: `POST /v1/clients/{clientId}/familymembers`
 
 ### Client Addresses
-Addresses support tracking Multiple locations (Residential, Business, Permanent) over time.
+**Database Context**: Managed via a normalized two-table structure:
+1. `m_address`: Stores the physical location details (`street`, `city`, `postal_code`, `country_id`).
+2. `m_client_address`: The mapping table linking the address to the client (`client_id`, `address_id`, `address_type_id`, `is_active`).
+
+This structure allows tracking multiple locations (Residential, Business, Permanent) over time.
 - **Manage Addresses**: `POST /v1/client/{clientId}/addresses`
 
 ### Documents and Notes
@@ -137,11 +141,17 @@ By default, Fineract does **not** store the binary contents (e.g., the actual PD
 Depending on your server configuration, Fineract routes the binary files to one of two places:
 
 1. **Local File System (Default)**
-   Out of the box, Fineract uses a local disk storage strategy. It creates a folder hierarchy on the host server running the Spring Boot application, defaulting to a directory like `~/.fineract/` (or the path defined by `fineract.node.folder`).
+   Out of the box, Fineract uses a local disk storage strategy. It creates a folder hierarchy on the host server running the Spring Boot application, defaulting to a directory like `~/.fineract/` (or the path defined by the `fineract.content.filesystem.rootFolder` property in `application.properties`).
    *Example path:* `~/.fineract/documents/client_identifiers/99/passport_scan.jpg`
 
+   > [!TIP]
+   > **The Filesystem Toggle**: The entire local disk storage engine is controlled by the `fineract.content.filesystem.enabled` Spring Boot property (which defaults to `true`).
+
 2. **Amazon S3 (For Production / Containers)**
-   If Fineract is deployed in a clustered environment (like Kubernetes) where local disk storage is ephemeral, saving files locally causes data loss. Fineract natively supports AWS S3. If S3 is configured via `application.properties`, the Multipart form upload is streamed directly into an S3 bucket.
+   If Fineract is deployed in a clustered environment (like Kubernetes) where local disk storage is ephemeral, saving files locally causes data loss. Fineract natively supports AWS S3. If S3 is configured via `application.properties` (using `fineract.content.s3.enabled=true`), the Multipart form upload is streamed directly into an S3 bucket.
+
+   > [!WARNING]
+   > **Production Safeguards**: When using S3 in production, it is highly recommended to explicitly set `fineract.content.filesystem.enabled=false`. This acts as a strict safeguard, guaranteeing Fineract will *never* accidentally write sensitive KYC documents to the local server disk, forcing 100% of traffic to the encrypted AWS bucket.
 
 **How Fineract tracks it:**
 Whether using File System or S3, Fineract inserts a row into the `m_document` table containing the original filename, MIME type, the physical `location` (absolute disk path or S3 Object Key), and a **`storage_type_enum`** (`1` for File System, `2` for S3). When you download a document via `GET /v1/.../documents/{documentId}/attachment`, Fineract uses this metadata to fetch the stream from the correct backend.
