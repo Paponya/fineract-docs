@@ -188,7 +188,14 @@ The client portfolio represents the financial footprint of a client. It aggregat
   Returns a summary JSON separating `loanAccounts`, `savingsAccounts`, and `shareAccounts` for the given client.
 
 ### Default Savings Account
-When applying for loans or orchestrating automated clearing, you often need a primary funding/settlement account. Fineract allows you to peg a specific savings account as the client's default.
+**Database Context**: Managed directly in the `m_client` table via the `default_savings_account` column (which stores the ID of the specific `m_savings_account`).
+
+When applying for loans or configuring Standing Instructions, you often need a primary funding or settlement account. Fineract allows you to peg a specific savings account as the client's default.
+
+This is critical for workflows like:
+- **Auto-Repayment / Auto-Sweep**: The system can automatically draw down funds from this default savings account to settle loan installments on their due date.
+- **Pay In / Pay Out Account**: When a loan is disbursed, the system can automatically deposit the principal into this default savings account.
+
 - **Update Default Savings**: `POST /v1/clients/{clientId}?command=updateSavingsAccount`
   ```json
   {
